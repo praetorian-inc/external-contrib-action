@@ -1,0 +1,139 @@
+// Must mock before imports
+jest.mock("@actions/core");
+jest.mock("@actions/github", () => ({
+  context: {
+    eventName: "pull_request_target",
+    payload: {
+      pull_request: {
+        title: "Fix bug",
+        body: "Fixes a bug",
+        html_url: "https://github.com/praetorian-inc/repo/pull/1",
+        number: 1,
+        user: { login: "external-user" },
+        labels: [{ name: "bug" }],
+      },
+    },
+    repo: { owner: "praetorian-inc", repo: "test-repo" },
+  },
+}));
+jest.mock("../src/membership");
+jest.mock("../src/linear");
+jest.mock("../src/slack");
+
+import * as core from "@actions/core";
+import * as github from "@actions/github";
+import { checkMembership } from "../src/membership";
+import { createLinearIssue } from "../src/linear";
+import { postSlackNotification } from "../src/slack";
+import { run } from "../src/index";
+
+const mockGetInput = core.getInput as jest.MockedFunction<typeof core.getInput>;
+const mockGetBooleanInput = core.getBooleanInput as jest.MockedFunction<typeof core.getBooleanInput>;
+const mockSetOutput = core.setOutput as jest.MockedFunction<typeof core.setOutput>;
+const mockSetFailed = core.setFailed as jest.MockedFunction<typeof core.setFailed>;
+const mockCheckMembership = checkMembership as jest.MockedFunction<typeof checkMembership>;
+const mockCreateLinearIssue = createLinearIssue as jest.MockedFunction<typeof createLinearIssue>;
+const mockPostSlackNotification = postSlackNotification as jest.MockedFunction<typeof postSlackNotification>;
+
+describe("run (orchestrator)", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    // Default inputs
+    mockGetInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        "linear-team-id": "team-abc",
+        "slack-channel-id": "C0TEST",
+        "github-org": "praetorian-inc",
+      };
+      return inputs[name] || "";
+    });
+    mockGetBooleanInput.mockReturnValue(false);
+
+    // Default env
+    process.env.ORG_MEMBER_CHECK_PAT = "fake-pat";
+    process.env.LINEAR_API_KEY = "lin_fake";
+    process.env.SLACK_BOT_TOKEN = "xoxb-fake";
+
+    // Default: external contributor
+    mockCheckMembership.mockResolvedValue({ isMember: false, reason: "not_member" });
+
+    // Default: Linear issue created
+    mockCreateLinearIssue.mockResolvedValue({
+      created: true,
+      issueId: "issue-1",
+      issueUrl: "https://linear.app/issue/1",
+      issueIdentifier: "ENG-1",
+    });
+
+    // Default: Slack succeeds
+    mockPostSlackNotification.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    delete process.env.ORG_MEMBER_CHECK_PAT;
+    delete process.env.LINEAR_API_KEY;
+    delete process.env.SLACK_BOT_TOKEN;
+  });
+
+  it("should create Linear issue and post Slack for external PR", async () => {
+    await run();
+
+    expect(mockCheckMembership).toHaveBeenCalledWith("external-user", "praetorian-inc", "fake-pat");
+    expect(mockCreateLinearIssue).toHaveBeenCalled();
+    expect(mockPostSlackNotification).toHaveBeenCalled();
+    expect(mockSetOutput).toHaveBeenCalledWith("is-external", "true");
+    expect(mockSetOutput).toHaveBeenCalledWith("linear-issue-url", "https://linear.app/issue/1");
+  });
+
+  it("should skip Linear and Slack for org members", async () => {
+    mockCheckMembership.mockResolvedValue({ isMember: true, reason: "member" });
+
+    await run();
+
+    expect(mockCreateLinearIssue).not.toHaveBeenCalled();
+    expect(mockPostSlackNotification).not.toHaveBeenCalled();
+    expect(mockSetOutput).toHaveBeenCalledWith("is-external", "false");
+  });
+
+  it("should handle issue events", async () => {
+    // Override the github context for this test
+    const ctx = github.context as any;
+    const originalEventName = ctx.eventName;
+    const originalPayload = ctx.payload;
+
+    ctx.eventName = "issues";
+    ctx.payload = {
+      issue: {
+        title: "Bug report",
+        body: "Found a bug",
+        html_url: "https://github.com/praetorian-inc/repo/issues/5",
+        number: 5,
+        user: { login: "external-user" },
+        labels: [{ name: "bug" }],
+      },
+    };
+
+    await run();
+
+    expect(mockCreateLinearIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "issue", title: "Bug report" }),
+      "team-abc",
+      undefined,
+      "lin_fake",
+      false
+    );
+
+    // Restore
+    ctx.eventName = originalEventName;
+    ctx.payload = originalPayload;
+  });
+
+  it("should call setFailed on unexpected errors", async () => {
+    mockCheckMembership.mockRejectedValue(new Error("API down"));
+
+    await run();
+
+    expect(mockSetFailed).toHaveBeenCalledWith("API down");
+  });
+});
