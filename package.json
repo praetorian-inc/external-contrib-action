@@ -1,0 +1,28 @@
+{
+  "name": "external-contrib-action",
+  "version": "1.0.0",
+  "description": "GitHub Action to detect and notify on external contributions",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "tsc --noEmit"
+  },
+  "private": true,
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@actions/core": "^3.0.0",
+    "@actions/github": "^9.0.0",
+    "@linear/sdk": "^75.0.0",
+    "@slack/web-api": "^7.14.1"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.3.0",
+    "@vercel/ncc": "^0.38.4",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  }
+}
