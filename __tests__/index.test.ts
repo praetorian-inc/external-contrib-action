@@ -120,6 +120,7 @@ describe("run (orchestrator)", () => {
       expect.objectContaining({ type: "issue", title: "Bug report" }),
       "team-abc",
       undefined,
+      undefined,
       "lin_fake",
       false
     );

@@ -64,7 +64,7 @@ describe("createLinearIssue", () => {
   });
 
   it("should create a Linear issue with correct title and description", async () => {
-    const result = await createLinearIssue(baseEvent, teamId, undefined, apiKey, false);
+    const result = await createLinearIssue(baseEvent, teamId, undefined, undefined, apiKey, false);
 
     expect(result.created).toBe(true);
     expect(result.issueId).toBe("issue-123");
@@ -83,7 +83,7 @@ describe("createLinearIssue", () => {
       nodes: [{ id: "existing-123", url: "https://linear.app/existing" }],
     });
 
-    const result = await createLinearIssue(baseEvent, teamId, undefined, apiKey, false);
+    const result = await createLinearIssue(baseEvent, teamId, undefined, undefined, apiKey, false);
 
     expect(result.created).toBe(false);
     expect(result.skippedReason).toBe("duplicate");
@@ -91,7 +91,7 @@ describe("createLinearIssue", () => {
   });
 
   it("should include project ID when provided", async () => {
-    await createLinearIssue(baseEvent, teamId, "project-xyz", apiKey, false);
+    await createLinearIssue(baseEvent, teamId, "project-xyz", undefined, apiKey, false);
 
     expect(mockCreateIssue).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -103,7 +103,7 @@ describe("createLinearIssue", () => {
   it("should truncate body longer than 10000 characters", async () => {
     const longEvent = { ...baseEvent, body: "x".repeat(15000) };
 
-    await createLinearIssue(longEvent, teamId, undefined, apiKey, false);
+    await createLinearIssue(longEvent, teamId, undefined, undefined, apiKey, false);
 
     const callArgs = mockCreateIssue.mock.calls[0][0];
     expect(callArgs.description.length).toBeLessThanOrEqual(12000);
@@ -112,7 +112,7 @@ describe("createLinearIssue", () => {
   it("should use Issue type label for issues", async () => {
     const issueEvent = { ...baseEvent, type: "issue" as const };
 
-    await createLinearIssue(issueEvent, teamId, undefined, apiKey, false);
+    await createLinearIssue(issueEvent, teamId, undefined, undefined, apiKey, false);
 
     expect(mockCreateIssue).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -122,7 +122,7 @@ describe("createLinearIssue", () => {
   });
 
   it("should not call APIs in dry-run mode", async () => {
-    const result = await createLinearIssue(baseEvent, teamId, undefined, apiKey, true);
+    const result = await createLinearIssue(baseEvent, teamId, undefined, undefined, apiKey, true);
 
     expect(result.created).toBe(false);
     expect(result.skippedReason).toBe("dry_run");
@@ -134,12 +134,12 @@ describe("createLinearIssue", () => {
     mockIssues.mockRejectedValue(new Error("Linear API error"));
 
     await expect(
-      createLinearIssue(baseEvent, teamId, undefined, apiKey, false)
+      createLinearIssue(baseEvent, teamId, undefined, undefined, apiKey, false)
     ).rejects.toThrow("Linear API error");
   });
 
   it("should include repo, author, and GitHub link in description", async () => {
-    await createLinearIssue(baseEvent, teamId, undefined, apiKey, false);
+    await createLinearIssue(baseEvent, teamId, undefined, undefined, apiKey, false);
 
     const callArgs = mockCreateIssue.mock.calls[0][0];
     expect(callArgs.description).toContain("praetorian-inc/noseyparker");
@@ -148,8 +148,25 @@ describe("createLinearIssue", () => {
     expect(callArgs.description).toContain("This PR fixes a buffer overflow");
   });
 
+  it("should include assignee ID when provided", async () => {
+    await createLinearIssue(baseEvent, teamId, undefined, "user-abc", apiKey, false);
+
+    expect(mockCreateIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assigneeId: "user-abc",
+      })
+    );
+  });
+
+  it("should not include assignee ID when not provided", async () => {
+    await createLinearIssue(baseEvent, teamId, undefined, undefined, apiKey, false);
+
+    const callArgs = mockCreateIssue.mock.calls[0][0];
+    expect(callArgs.assigneeId).toBeUndefined();
+  });
+
   it("should always create external-contribution label", async () => {
-    await createLinearIssue(baseEvent, teamId, undefined, apiKey, false);
+    await createLinearIssue(baseEvent, teamId, undefined, undefined, apiKey, false);
 
     expect(mockIssueLabels).toHaveBeenCalled();
     expect(mockCreateIssue).toHaveBeenCalledWith(

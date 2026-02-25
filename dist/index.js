@@ -39419,6 +39419,7 @@ function parseInputs() {
     return {
         linearTeamId: core.getInput("linear-team-id", { required: true }),
         linearProjectId: core.getInput("linear-project-id") || undefined,
+        linearAssigneeId: core.getInput("linear-assignee-id") || undefined,
         slackChannelId: core.getInput("slack-channel-id", { required: true }),
         githubOrg: core.getInput("github-org") || "praetorian-inc",
         dryRun: core.getBooleanInput("dry-run"),
@@ -39484,7 +39485,7 @@ async function run() {
         if (!linearApiKey) {
             throw new Error("LINEAR_API_KEY environment variable is required");
         }
-        const linearResult = await (0, linear_1.createLinearIssue)(event, inputs.linearTeamId, inputs.linearProjectId, linearApiKey, inputs.dryRun);
+        const linearResult = await (0, linear_1.createLinearIssue)(event, inputs.linearTeamId, inputs.linearProjectId, inputs.linearAssigneeId, linearApiKey, inputs.dryRun);
         if (linearResult.issueUrl) {
             core.setOutput("linear-issue-url", linearResult.issueUrl);
         }
@@ -39613,7 +39614,7 @@ async function ensureLabel(client, teamId, labelName) {
     }
     return label.id;
 }
-async function createLinearIssue(event, teamId, projectId, apiKey, dryRun) {
+async function createLinearIssue(event, teamId, projectId, assigneeId, apiKey, dryRun) {
     if (dryRun) {
         core.info(`[DRY RUN] Would create Linear issue: ${buildTitle(event)}`);
         core.info(`[DRY RUN] Team: ${teamId}, Project: ${projectId || "none"}`);
@@ -39652,6 +39653,7 @@ async function createLinearIssue(event, teamId, projectId, apiKey, dryRun) {
         description: buildDescription(event),
         labelIds,
         ...(projectId ? { projectId } : {}),
+        ...(assigneeId ? { assigneeId } : {}),
     };
     const result = await client.createIssue(issuePayload);
     if (!result.success) {

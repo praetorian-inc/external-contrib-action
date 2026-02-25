@@ -16,6 +16,9 @@ inputs:
     description: "GitHub organization to check membership against"
     required: false
     default: "praetorian-inc"
+  linear-assignee-id:
+    description: "Linear user ID to assign created issues to (optional)"
+    required: false
   dry-run:
     description: "Log payloads instead of sending (for testing)"
     required: false

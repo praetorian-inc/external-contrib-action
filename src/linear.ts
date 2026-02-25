@@ -84,6 +84,7 @@ export async function createLinearIssue(
   event: ContributionEvent,
   teamId: string,
   projectId: string | undefined,
+  assigneeId: string | undefined,
   apiKey: string,
   dryRun: boolean
 ): Promise<LinearIssueResult> {
@@ -129,6 +130,7 @@ export async function createLinearIssue(
     description: buildDescription(event),
     labelIds,
     ...(projectId ? { projectId } : {}),
+    ...(assigneeId ? { assigneeId } : {}),
   };
 
   const result = await client.createIssue(issuePayload);
