@@ -19,6 +19,13 @@ inputs:
   linear-assignee-id:
     description: "Linear user ID to assign created issues to (optional)"
     required: false
+  linear-parent-issue-id:
+    description: "Linear parent issue ID — created issues become sub-issues of this parent (optional)"
+    required: false
+  linear-state-name:
+    description: "Linear state name for created issues (defaults to Backlog)"
+    required: false
+    default: "Backlog"
   dry-run:
     description: "Log payloads instead of sending (for testing)"
     required: false

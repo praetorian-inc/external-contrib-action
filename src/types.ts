@@ -2,6 +2,8 @@ export interface ActionInputs {
   linearTeamId: string;
   linearProjectId?: string;
   linearAssigneeId?: string;
+  linearParentIssueId?: string;
+  linearStateName: string;
   slackChannelId: string;
   githubOrg: string;
   dryRun: boolean;

@@ -39420,6 +39420,8 @@ function parseInputs() {
         linearTeamId: core.getInput("linear-team-id", { required: true }),
         linearProjectId: core.getInput("linear-project-id") || undefined,
         linearAssigneeId: core.getInput("linear-assignee-id") || undefined,
+        linearParentIssueId: core.getInput("linear-parent-issue-id") || undefined,
+        linearStateName: core.getInput("linear-state-name") || "Backlog",
         slackChannelId: core.getInput("slack-channel-id", { required: true }),
         githubOrg: core.getInput("github-org") || "praetorian-inc",
         dryRun: core.getBooleanInput("dry-run"),
@@ -39485,7 +39487,7 @@ async function run() {
         if (!linearApiKey) {
             throw new Error("LINEAR_API_KEY environment variable is required");
         }
-        const linearResult = await (0, linear_1.createLinearIssue)(event, inputs.linearTeamId, inputs.linearProjectId, inputs.linearAssigneeId, linearApiKey, inputs.dryRun);
+        const linearResult = await (0, linear_1.createLinearIssue)(event, inputs.linearTeamId, inputs.linearProjectId, inputs.linearAssigneeId, inputs.linearParentIssueId, inputs.linearStateName, linearApiKey, inputs.dryRun);
         if (linearResult.issueUrl) {
             core.setOutput("linear-issue-url", linearResult.issueUrl);
         }
@@ -39614,10 +39616,20 @@ async function ensureLabel(client, teamId, labelName) {
     }
     return label.id;
 }
-async function createLinearIssue(event, teamId, projectId, assigneeId, apiKey, dryRun) {
+async function resolveStateId(client, teamId, stateName) {
+    const states = await client.workflowStates({
+        filter: { team: { id: { eq: teamId } }, name: { eq: stateName } },
+    });
+    if (states.nodes.length > 0) {
+        return states.nodes[0].id;
+    }
+    core.warning(`State "${stateName}" not found for team ${teamId} — using team default`);
+    return undefined;
+}
+async function createLinearIssue(event, teamId, projectId, assigneeId, parentIssueId, stateName, apiKey, dryRun) {
     if (dryRun) {
         core.info(`[DRY RUN] Would create Linear issue: ${buildTitle(event)}`);
-        core.info(`[DRY RUN] Team: ${teamId}, Project: ${projectId || "none"}`);
+        core.info(`[DRY RUN] Team: ${teamId}, Project: ${projectId || "none"}, Parent: ${parentIssueId || "none"}, State: ${stateName}`);
         return { created: false, skippedReason: "dry_run" };
     }
     const client = new sdk_1.LinearClient({ apiKey });
@@ -39632,6 +39644,8 @@ async function createLinearIssue(event, teamId, projectId, assigneeId, apiKey, d
             skippedReason: "duplicate",
         };
     }
+    // Resolve state by name
+    const stateId = await resolveStateId(client, teamId, stateName);
     // Ensure external-contribution label exists
     const labelIds = [];
     const externalLabelId = await ensureLabel(client, teamId, "external-contribution");
@@ -39654,6 +39668,8 @@ async function createLinearIssue(event, teamId, projectId, assigneeId, apiKey, d
         labelIds,
         ...(projectId ? { projectId } : {}),
         ...(assigneeId ? { assigneeId } : {}),
+        ...(parentIssueId ? { parentId: parentIssueId } : {}),
+        ...(stateId ? { stateId } : {}),
     };
     const result = await client.createIssue(issuePayload);
     if (!result.success) {

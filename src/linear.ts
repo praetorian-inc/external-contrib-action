@@ -80,17 +80,36 @@ async function ensureLabel(
   return label.id;
 }
 
+async function resolveStateId(
+  client: LinearClient,
+  teamId: string,
+  stateName: string
+): Promise<string | undefined> {
+  const states = await client.workflowStates({
+    filter: { team: { id: { eq: teamId } }, name: { eq: stateName } },
+  });
+
+  if (states.nodes.length > 0) {
+    return states.nodes[0].id;
+  }
+
+  core.warning(`State "${stateName}" not found for team ${teamId} — using team default`);
+  return undefined;
+}
+
 export async function createLinearIssue(
   event: ContributionEvent,
   teamId: string,
   projectId: string | undefined,
   assigneeId: string | undefined,
+  parentIssueId: string | undefined,
+  stateName: string,
   apiKey: string,
   dryRun: boolean
 ): Promise<LinearIssueResult> {
   if (dryRun) {
     core.info(`[DRY RUN] Would create Linear issue: ${buildTitle(event)}`);
-    core.info(`[DRY RUN] Team: ${teamId}, Project: ${projectId || "none"}`);
+    core.info(`[DRY RUN] Team: ${teamId}, Project: ${projectId || "none"}, Parent: ${parentIssueId || "none"}, State: ${stateName}`);
     return { created: false, skippedReason: "dry_run" };
   }
 
@@ -107,6 +126,9 @@ export async function createLinearIssue(
       skippedReason: "duplicate",
     };
   }
+
+  // Resolve state by name
+  const stateId = await resolveStateId(client, teamId, stateName);
 
   // Ensure external-contribution label exists
   const labelIds: string[] = [];
@@ -131,6 +153,8 @@ export async function createLinearIssue(
     labelIds,
     ...(projectId ? { projectId } : {}),
     ...(assigneeId ? { assigneeId } : {}),
+    ...(parentIssueId ? { parentId: parentIssueId } : {}),
+    ...(stateId ? { stateId } : {}),
   };
 
   const result = await client.createIssue(issuePayload);

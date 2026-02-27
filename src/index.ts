@@ -10,6 +10,8 @@ function parseInputs(): ActionInputs {
     linearTeamId: core.getInput("linear-team-id", { required: true }),
     linearProjectId: core.getInput("linear-project-id") || undefined,
     linearAssigneeId: core.getInput("linear-assignee-id") || undefined,
+    linearParentIssueId: core.getInput("linear-parent-issue-id") || undefined,
+    linearStateName: core.getInput("linear-state-name") || "Backlog",
     slackChannelId: core.getInput("slack-channel-id", { required: true }),
     githubOrg: core.getInput("github-org") || "praetorian-inc",
     dryRun: core.getBooleanInput("dry-run"),
@@ -93,6 +95,8 @@ export async function run(): Promise<void> {
       inputs.linearTeamId,
       inputs.linearProjectId,
       inputs.linearAssigneeId,
+      inputs.linearParentIssueId,
+      inputs.linearStateName,
       linearApiKey,
       inputs.dryRun
     );
