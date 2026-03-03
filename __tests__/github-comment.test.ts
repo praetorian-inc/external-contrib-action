@@ -154,4 +154,65 @@ describe("postGitHubComment", () => {
     expect(mockCreateComment).not.toHaveBeenCalled();
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining("[DRY RUN]"));
   });
+
+  it("should fall back to username when display name lookup fails", async () => {
+    mockGetByUsername.mockRejectedValue(new Error("API error"));
+    const event = makeEvent({ action: "assigned", assignee: "nsportsman" });
+
+    await postGitHubComment(event, "fake-token", false);
+
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: "praetorian-inc",
+      repo: "test-repo",
+      issue_number: 5,
+      body: expect.stringContaining("I'm nsportsman"),
+    });
+  });
+
+  it("should post resolution comment on closed event", async () => {
+    const event = makeEvent({ action: "closed", closedBy: "nsportsman" });
+    await postGitHubComment(event, "fake-token", false);
+
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: "praetorian-inc",
+      repo: "test-repo",
+      issue_number: 5,
+      body: expect.stringContaining("should now be resolved"),
+    });
+  });
+
+  it("should post self-close comment when author closes", async () => {
+    const event = makeEvent({ action: "closed", closedBy: "external-user" });
+    await postGitHubComment(event, "fake-token", false);
+
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: "praetorian-inc",
+      repo: "test-repo",
+      issue_number: 5,
+      body: expect.stringContaining("Thanks for letting us know"),
+    });
+  });
+
+  it("should skip duplicate on closed events", async () => {
+    mockListComments.mockResolvedValue({
+      data: [
+        { body: "Hey @external-user, this should now be resolved." },
+      ],
+    });
+
+    const event = makeEvent({ action: "closed", closedBy: "nsportsman" });
+    await postGitHubComment(event, "fake-token", false);
+
+    expect(mockCreateComment).not.toHaveBeenCalled();
+  });
+
+  it("should proceed when listComments fails for dedup check", async () => {
+    mockListComments.mockRejectedValue(new Error("API error"));
+    const event = makeEvent({ action: "opened" });
+
+    await postGitHubComment(event, "fake-token", false);
+
+    // Should still post despite dedup check failure
+    expect(mockCreateComment).toHaveBeenCalled();
+  });
 });
