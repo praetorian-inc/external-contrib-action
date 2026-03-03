@@ -3,6 +3,7 @@ import * as github from "@actions/github";
 import { checkMembership } from "./membership";
 import { createLinearIssue } from "./linear";
 import { postSlackNotification } from "./slack";
+import { postGitHubComment } from "./github-comment";
 import { ActionInputs, ContributionEvent } from "./types";
 
 function parseInputs(): ActionInputs {
@@ -15,21 +16,25 @@ function parseInputs(): ActionInputs {
     slackChannelId: core.getInput("slack-channel-id", { required: true }),
     githubOrg: core.getInput("github-org") || "praetorian-inc",
     dryRun: core.getBooleanInput("dry-run"),
+    autoReplyEnabled: core.getInput("auto-reply-enabled") !== "false",
   };
 }
 
 function parseEvent(): ContributionEvent {
   const context = github.context;
+  const action = (context.payload.action || "opened") as "opened" | "assigned" | "closed";
 
   if (context.eventName === "pull_request_target" || context.eventName === "pull_request") {
     const pr = context.payload.pull_request!;
     return {
       type: "pull_request",
+      action,
       title: pr.title as string,
       body: (pr.body as string) || "",
       url: pr.html_url as string,
       number: pr.number as number,
       author: (pr.user as { login: string }).login,
+      assignee: context.payload.assignee?.login as string | undefined,
       repo: context.repo.repo,
       repoFullName: `${context.repo.owner}/${context.repo.repo}`,
       labels: ((pr.labels || []) as Array<{ name: string }>).map((l) => l.name),
@@ -40,11 +45,13 @@ function parseEvent(): ContributionEvent {
     const issue = context.payload.issue!;
     return {
       type: "issue",
+      action,
       title: issue.title as string,
       body: (issue.body as string) || "",
       url: issue.html_url as string,
       number: issue.number as number,
       author: (issue.user as { login: string }).login,
+      assignee: context.payload.assignee?.login as string | undefined,
       repo: context.repo.repo,
       repoFullName: `${context.repo.owner}/${context.repo.repo}`,
       labels: ((issue.labels || []) as Array<{ name: string }>).map((l) => l.name),
@@ -59,7 +66,7 @@ export async function run(): Promise<void> {
     const inputs = parseInputs();
     const event = parseEvent();
 
-    core.info(`Processing ${event.type} #${event.number} by ${event.author} on ${event.repoFullName}`);
+    core.info(`Processing ${event.type} #${event.number} (${event.action}) by ${event.author} on ${event.repoFullName}`);
 
     // Step 1: Check org membership
     const orgToken = process.env.ORG_MEMBER_CHECK_PAT;
@@ -81,46 +88,59 @@ export async function run(): Promise<void> {
       return;
     }
 
-    core.info(`${event.author} is external (${membership.reason}) — creating notifications`);
+    core.info(`${event.author} is external (${membership.reason}) — processing ${event.action} event`);
     core.setOutput("is-external", "true");
 
-    // Step 2: Create Linear issue
-    const linearApiKey = process.env.LINEAR_API_KEY;
-    if (!linearApiKey) {
-      throw new Error("LINEAR_API_KEY environment variable is required");
+    // Route by action: only "opened" triggers Linear + Slack
+    if (event.action === "opened") {
+      // Step 2: Create Linear issue
+      const linearApiKey = process.env.LINEAR_API_KEY;
+      if (!linearApiKey) {
+        throw new Error("LINEAR_API_KEY environment variable is required");
+      }
+
+      const linearResult = await createLinearIssue(
+        event,
+        inputs.linearTeamId,
+        inputs.linearProjectId,
+        inputs.linearAssigneeId,
+        inputs.linearParentIssueId,
+        inputs.linearStateName,
+        linearApiKey,
+        inputs.dryRun
+      );
+
+      if (linearResult.issueUrl) {
+        core.setOutput("linear-issue-url", linearResult.issueUrl);
+      }
+      if (linearResult.issueIdentifier) {
+        core.setOutput("linear-issue-id", linearResult.issueIdentifier);
+      }
+
+      // Step 3: Post Slack notification
+      const slackToken = process.env.SLACK_BOT_TOKEN;
+      if (!slackToken) {
+        throw new Error("SLACK_BOT_TOKEN environment variable is required");
+      }
+
+      await postSlackNotification(
+        event,
+        inputs.slackChannelId,
+        linearResult,
+        slackToken,
+        inputs.dryRun
+      );
     }
 
-    const linearResult = await createLinearIssue(
-      event,
-      inputs.linearTeamId,
-      inputs.linearProjectId,
-      inputs.linearAssigneeId,
-      inputs.linearParentIssueId,
-      inputs.linearStateName,
-      linearApiKey,
-      inputs.dryRun
-    );
-
-    if (linearResult.issueUrl) {
-      core.setOutput("linear-issue-url", linearResult.issueUrl);
+    // Step 4: Post GitHub auto-reply comment (all actions)
+    if (inputs.autoReplyEnabled) {
+      const githubToken = process.env.GITHUB_TOKEN;
+      if (githubToken) {
+        await postGitHubComment(event, githubToken, inputs.dryRun);
+      } else {
+        core.info("GITHUB_TOKEN not set — skipping auto-reply comment");
+      }
     }
-    if (linearResult.issueIdentifier) {
-      core.setOutput("linear-issue-id", linearResult.issueIdentifier);
-    }
-
-    // Step 3: Post Slack notification
-    const slackToken = process.env.SLACK_BOT_TOKEN;
-    if (!slackToken) {
-      throw new Error("SLACK_BOT_TOKEN environment variable is required");
-    }
-
-    await postSlackNotification(
-      event,
-      inputs.slackChannelId,
-      linearResult,
-      slackToken,
-      inputs.dryRun
-    );
 
     core.info("External contribution notification complete");
   } catch (error) {

@@ -18,6 +18,7 @@ jest.mock("@slack/web-api", () => ({
 
 const baseEvent: ContributionEvent = {
   type: "pull_request",
+  action: "opened",
   title: "Fix buffer overflow",
   body: "This PR fixes a buffer overflow in the scanner that occurs when processing large files.",
   url: "https://github.com/praetorian-inc/noseyparker/pull/42",

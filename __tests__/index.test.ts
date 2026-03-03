@@ -4,6 +4,7 @@ jest.mock("@actions/github", () => ({
   context: {
     eventName: "pull_request_target",
     payload: {
+      action: "opened",
       pull_request: {
         title: "Fix bug",
         body: "Fixes a bug",
@@ -19,12 +20,14 @@ jest.mock("@actions/github", () => ({
 jest.mock("../src/membership");
 jest.mock("../src/linear");
 jest.mock("../src/slack");
+jest.mock("../src/github-comment");
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { checkMembership } from "../src/membership";
 import { createLinearIssue } from "../src/linear";
 import { postSlackNotification } from "../src/slack";
+import { postGitHubComment } from "../src/github-comment";
 import { run } from "../src/index";
 
 const mockGetInput = core.getInput as jest.MockedFunction<typeof core.getInput>;
@@ -34,6 +37,7 @@ const mockSetFailed = core.setFailed as jest.MockedFunction<typeof core.setFaile
 const mockCheckMembership = checkMembership as jest.MockedFunction<typeof checkMembership>;
 const mockCreateLinearIssue = createLinearIssue as jest.MockedFunction<typeof createLinearIssue>;
 const mockPostSlackNotification = postSlackNotification as jest.MockedFunction<typeof postSlackNotification>;
+const mockPostGitHubComment = postGitHubComment as jest.MockedFunction<typeof postGitHubComment>;
 
 describe("run (orchestrator)", () => {
   beforeEach(() => {
@@ -45,6 +49,7 @@ describe("run (orchestrator)", () => {
         "linear-team-id": "team-abc",
         "slack-channel-id": "C0TEST",
         "github-org": "praetorian-inc",
+        "auto-reply-enabled": "true",
       };
       return inputs[name] || "";
     });
@@ -54,6 +59,7 @@ describe("run (orchestrator)", () => {
     process.env.ORG_MEMBER_CHECK_PAT = "fake-pat";
     process.env.LINEAR_API_KEY = "lin_fake";
     process.env.SLACK_BOT_TOKEN = "xoxb-fake";
+    process.env.GITHUB_TOKEN = "ghp-fake-token";
 
     // Default: external contributor
     mockCheckMembership.mockResolvedValue({ isMember: false, reason: "not_member" });
@@ -68,12 +74,16 @@ describe("run (orchestrator)", () => {
 
     // Default: Slack succeeds
     mockPostSlackNotification.mockResolvedValue(undefined);
+
+    // Default: GitHub comment succeeds
+    mockPostGitHubComment.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     delete process.env.ORG_MEMBER_CHECK_PAT;
     delete process.env.LINEAR_API_KEY;
     delete process.env.SLACK_BOT_TOKEN;
+    delete process.env.GITHUB_TOKEN;
   });
 
   it("should create Linear issue and post Slack for external PR", async () => {
@@ -97,13 +107,13 @@ describe("run (orchestrator)", () => {
   });
 
   it("should handle issue events", async () => {
-    // Override the github context for this test
     const ctx = github.context as any;
     const originalEventName = ctx.eventName;
     const originalPayload = ctx.payload;
 
     ctx.eventName = "issues";
     ctx.payload = {
+      action: "opened",
       issue: {
         title: "Bug report",
         body: "Found a bug",
@@ -127,7 +137,6 @@ describe("run (orchestrator)", () => {
       false
     );
 
-    // Restore
     ctx.eventName = originalEventName;
     ctx.payload = originalPayload;
   });
@@ -138,5 +147,109 @@ describe("run (orchestrator)", () => {
     await run();
 
     expect(mockSetFailed).toHaveBeenCalledWith("API down");
+  });
+
+  // --- New auto-reply tests ---
+
+  it("should post GitHub comment on opened event when auto-reply enabled", async () => {
+    await run();
+
+    expect(mockPostGitHubComment).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "opened", author: "external-user" }),
+      "ghp-fake-token",
+      false
+    );
+  });
+
+  it("should post comment but NOT Linear/Slack on assigned event", async () => {
+    const ctx = github.context as any;
+    const originalEventName = ctx.eventName;
+    const originalPayload = ctx.payload;
+
+    ctx.eventName = "issues";
+    ctx.payload = {
+      action: "assigned",
+      assignee: { login: "nsportsman" },
+      issue: {
+        title: "Bug report",
+        body: "Found a bug",
+        html_url: "https://github.com/praetorian-inc/repo/issues/5",
+        number: 5,
+        user: { login: "external-user" },
+        labels: [{ name: "bug" }],
+      },
+    };
+
+    await run();
+
+    expect(mockPostGitHubComment).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "assigned", assignee: "nsportsman" }),
+      "ghp-fake-token",
+      false
+    );
+    expect(mockCreateLinearIssue).not.toHaveBeenCalled();
+    expect(mockPostSlackNotification).not.toHaveBeenCalled();
+
+    ctx.eventName = originalEventName;
+    ctx.payload = originalPayload;
+  });
+
+  it("should post comment but NOT Linear/Slack on closed event", async () => {
+    const ctx = github.context as any;
+    const originalEventName = ctx.eventName;
+    const originalPayload = ctx.payload;
+
+    ctx.eventName = "issues";
+    ctx.payload = {
+      action: "closed",
+      issue: {
+        title: "Bug report",
+        body: "Found a bug",
+        html_url: "https://github.com/praetorian-inc/repo/issues/5",
+        number: 5,
+        user: { login: "external-user" },
+        labels: [{ name: "bug" }],
+      },
+    };
+
+    await run();
+
+    expect(mockPostGitHubComment).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "closed" }),
+      "ghp-fake-token",
+      false
+    );
+    expect(mockCreateLinearIssue).not.toHaveBeenCalled();
+    expect(mockPostSlackNotification).not.toHaveBeenCalled();
+
+    ctx.eventName = originalEventName;
+    ctx.payload = originalPayload;
+  });
+
+  it("should skip comment when GITHUB_TOKEN is missing", async () => {
+    delete process.env.GITHUB_TOKEN;
+
+    await run();
+
+    expect(mockPostGitHubComment).not.toHaveBeenCalled();
+    // Linear and Slack should still work
+    expect(mockCreateLinearIssue).toHaveBeenCalled();
+    expect(mockPostSlackNotification).toHaveBeenCalled();
+  });
+
+  it("should skip comment when auto-reply-enabled is false", async () => {
+    mockGetInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        "linear-team-id": "team-abc",
+        "slack-channel-id": "C0TEST",
+        "github-org": "praetorian-inc",
+        "auto-reply-enabled": "false",
+      };
+      return inputs[name] || "";
+    });
+
+    await run();
+
+    expect(mockPostGitHubComment).not.toHaveBeenCalled();
   });
 });
