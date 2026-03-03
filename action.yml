@@ -1,5 +1,5 @@
 name: "External Contribution Notify"
-description: "Detects external contributions (PRs/Issues) on praetorian-inc repos and creates Linear issues + Slack notifications"
+description: "Detects external contributions (PRs/Issues) on praetorian-inc repos — creates Linear issues, Slack notifications, and auto-reply comments"
 author: "Praetorian"
 
 inputs:
@@ -30,6 +30,10 @@ inputs:
     description: "Log payloads instead of sending (for testing)"
     required: false
     default: "false"
+  auto-reply-enabled:
+    description: "Enable automatic reply comments on GitHub Issues/PRs (set false to disable)"
+    required: false
+    default: "true"
 
 outputs:
   is-external:

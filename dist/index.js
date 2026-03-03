@@ -39370,6 +39370,132 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 5024:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.buildComment = buildComment;
+exports.postGitHubComment = postGitHubComment;
+const core = __importStar(__nccwpck_require__(7484));
+const github = __importStar(__nccwpck_require__(3228));
+// Signature phrases used for dedup detection
+const SIGNATURES = {
+    opened: "thanks for taking the time",
+    assigned: "looking into this",
+    closed: "should now be resolved",
+};
+function buildComment(event, assigneeDisplayName) {
+    const typeLabel = event.type === "pull_request" ? "PR" : "issue";
+    switch (event.action) {
+        case "opened":
+            return (`Hey @${event.author}, thanks for taking the time to submit this ${typeLabel}! ` +
+                `Our team has been notified and someone will be picking this up shortly.`);
+        case "assigned": {
+            const name = assigneeDisplayName || event.assignee || "a team member";
+            return (`Hey @${event.author}, I'm ${name} and I'll be looking into this. ` +
+                `Hang tight and I'll follow up once I have an update.`);
+        }
+        case "closed":
+            return (`Hey @${event.author}, this should now be resolved. ` +
+                `If everything looks good on your end, no action needed. ` +
+                `If you're still seeing issues, feel free to reopen and we'll take another look. ` +
+                `Thanks for helping us improve!`);
+    }
+}
+async function getDisplayName(octokit, username) {
+    try {
+        const { data } = await octokit.rest.users.getByUsername({ username });
+        return data.name || undefined;
+    }
+    catch {
+        core.warning(`Failed to look up display name for ${username}`);
+        return undefined;
+    }
+}
+async function isDuplicate(octokit, owner, repo, issueNumber, action) {
+    const signature = SIGNATURES[action];
+    if (!signature)
+        return false;
+    try {
+        const { data: comments } = await octokit.rest.issues.listComments({
+            owner,
+            repo,
+            issue_number: issueNumber,
+        });
+        return comments.some((c) => c.body && c.body.includes(signature));
+    }
+    catch {
+        core.warning("Failed to check for duplicate comments — proceeding with post");
+        return false;
+    }
+}
+async function postGitHubComment(event, token, dryRun) {
+    const octokit = github.getOctokit(token);
+    const [owner, repo] = event.repoFullName.split("/");
+    // Look up assignee display name for assigned events
+    let displayName;
+    if (event.action === "assigned" && event.assignee) {
+        displayName = await getDisplayName(octokit, event.assignee);
+    }
+    const body = buildComment(event, displayName);
+    if (dryRun) {
+        core.info(`[DRY RUN] Would post comment on ${event.repoFullName}#${event.number}:`);
+        core.info(`[DRY RUN] ${body}`);
+        return;
+    }
+    // Check for duplicate before posting
+    const duplicate = await isDuplicate(octokit, owner, repo, event.number, event.action);
+    if (duplicate) {
+        core.info(`Duplicate ${event.action} comment already exists on #${event.number} — skipping`);
+        return;
+    }
+    await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: event.number,
+        body,
+    });
+    core.info(`Posted ${event.action} comment on ${event.repoFullName}#${event.number}`);
+}
+
+
+/***/ }),
+
 /***/ 9407:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -39415,6 +39541,7 @@ const github = __importStar(__nccwpck_require__(3228));
 const membership_1 = __nccwpck_require__(2111);
 const linear_1 = __nccwpck_require__(6890);
 const slack_1 = __nccwpck_require__(6691);
+const github_comment_1 = __nccwpck_require__(5024);
 function parseInputs() {
     return {
         linearTeamId: core.getInput("linear-team-id", { required: true }),
@@ -39425,19 +39552,23 @@ function parseInputs() {
         slackChannelId: core.getInput("slack-channel-id", { required: true }),
         githubOrg: core.getInput("github-org") || "praetorian-inc",
         dryRun: core.getBooleanInput("dry-run"),
+        autoReplyEnabled: core.getInput("auto-reply-enabled") !== "false",
     };
 }
 function parseEvent() {
     const context = github.context;
+    const action = (context.payload.action || "opened");
     if (context.eventName === "pull_request_target" || context.eventName === "pull_request") {
         const pr = context.payload.pull_request;
         return {
             type: "pull_request",
+            action,
             title: pr.title,
             body: pr.body || "",
             url: pr.html_url,
             number: pr.number,
             author: pr.user.login,
+            assignee: context.payload.assignee?.login,
             repo: context.repo.repo,
             repoFullName: `${context.repo.owner}/${context.repo.repo}`,
             labels: (pr.labels || []).map((l) => l.name),
@@ -39447,11 +39578,13 @@ function parseEvent() {
         const issue = context.payload.issue;
         return {
             type: "issue",
+            action,
             title: issue.title,
             body: issue.body || "",
             url: issue.html_url,
             number: issue.number,
             author: issue.user.login,
+            assignee: context.payload.assignee?.login,
             repo: context.repo.repo,
             repoFullName: `${context.repo.owner}/${context.repo.repo}`,
             labels: (issue.labels || []).map((l) => l.name),
@@ -39463,7 +39596,7 @@ async function run() {
     try {
         const inputs = parseInputs();
         const event = parseEvent();
-        core.info(`Processing ${event.type} #${event.number} by ${event.author} on ${event.repoFullName}`);
+        core.info(`Processing ${event.type} #${event.number} (${event.action}) by ${event.author} on ${event.repoFullName}`);
         // Step 1: Check org membership
         const orgToken = process.env.ORG_MEMBER_CHECK_PAT;
         if (!orgToken) {
@@ -39480,26 +39613,39 @@ async function run() {
             core.setOutput("is-external", "false");
             return;
         }
-        core.info(`${event.author} is external (${membership.reason}) — creating notifications`);
+        core.info(`${event.author} is external (${membership.reason}) — processing ${event.action} event`);
         core.setOutput("is-external", "true");
-        // Step 2: Create Linear issue
-        const linearApiKey = process.env.LINEAR_API_KEY;
-        if (!linearApiKey) {
-            throw new Error("LINEAR_API_KEY environment variable is required");
+        // Route by action: only "opened" triggers Linear + Slack
+        if (event.action === "opened") {
+            // Step 2: Create Linear issue
+            const linearApiKey = process.env.LINEAR_API_KEY;
+            if (!linearApiKey) {
+                throw new Error("LINEAR_API_KEY environment variable is required");
+            }
+            const linearResult = await (0, linear_1.createLinearIssue)(event, inputs.linearTeamId, inputs.linearProjectId, inputs.linearAssigneeId, inputs.linearParentIssueId, inputs.linearStateName, linearApiKey, inputs.dryRun);
+            if (linearResult.issueUrl) {
+                core.setOutput("linear-issue-url", linearResult.issueUrl);
+            }
+            if (linearResult.issueIdentifier) {
+                core.setOutput("linear-issue-id", linearResult.issueIdentifier);
+            }
+            // Step 3: Post Slack notification
+            const slackToken = process.env.SLACK_BOT_TOKEN;
+            if (!slackToken) {
+                throw new Error("SLACK_BOT_TOKEN environment variable is required");
+            }
+            await (0, slack_1.postSlackNotification)(event, inputs.slackChannelId, linearResult, slackToken, inputs.dryRun);
         }
-        const linearResult = await (0, linear_1.createLinearIssue)(event, inputs.linearTeamId, inputs.linearProjectId, inputs.linearAssigneeId, inputs.linearParentIssueId, inputs.linearStateName, linearApiKey, inputs.dryRun);
-        if (linearResult.issueUrl) {
-            core.setOutput("linear-issue-url", linearResult.issueUrl);
+        // Step 4: Post GitHub auto-reply comment (all actions)
+        if (inputs.autoReplyEnabled) {
+            const githubToken = process.env.GITHUB_TOKEN;
+            if (githubToken) {
+                await (0, github_comment_1.postGitHubComment)(event, githubToken, inputs.dryRun);
+            }
+            else {
+                core.info("GITHUB_TOKEN not set — skipping auto-reply comment");
+            }
         }
-        if (linearResult.issueIdentifier) {
-            core.setOutput("linear-issue-id", linearResult.issueIdentifier);
-        }
-        // Step 3: Post Slack notification
-        const slackToken = process.env.SLACK_BOT_TOKEN;
-        if (!slackToken) {
-            throw new Error("SLACK_BOT_TOKEN environment variable is required");
-        }
-        await (0, slack_1.postSlackNotification)(event, inputs.slackChannelId, linearResult, slackToken, inputs.dryRun);
         core.info("External contribution notification complete");
     }
     catch (error) {
