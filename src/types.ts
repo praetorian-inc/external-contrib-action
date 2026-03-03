@@ -7,15 +7,18 @@ export interface ActionInputs {
   slackChannelId: string;
   githubOrg: string;
   dryRun: boolean;
+  autoReplyEnabled: boolean;
 }
 
 export interface ContributionEvent {
   type: "pull_request" | "issue";
+  action: "opened" | "assigned" | "closed";
   title: string;
   body: string;
   url: string;
   number: number;
   author: string;
+  assignee?: string;
   repo: string;
   repoFullName: string;
   labels: string[];
