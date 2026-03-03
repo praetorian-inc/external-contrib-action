@@ -62,14 +62,24 @@ describe("buildComment", () => {
     expect(comment).toContain("I'm nsportsman");
   });
 
-  it("should build resolution message for closed events", () => {
-    const event = makeEvent({ action: "closed" });
+  it("should build resolution message when team member closes", () => {
+    const event = makeEvent({ action: "closed", closedBy: "nsportsman" });
     const comment = buildComment(event);
 
     expect(comment).toContain("@external-user");
     expect(comment).toContain("should now be resolved");
     expect(comment).toContain("reopen");
     expect(comment).toContain("Thanks for helping us improve");
+  });
+
+  it("should build self-close message when author closes their own issue", () => {
+    const event = makeEvent({ action: "closed", closedBy: "external-user" });
+    const comment = buildComment(event);
+
+    expect(comment).toContain("@external-user");
+    expect(comment).toContain("Thanks for letting us know");
+    expect(comment).toContain("Glad this is sorted");
+    expect(comment).not.toContain("should now be resolved");
   });
 });
 

@@ -6,7 +6,8 @@ import { ContributionEvent } from "./types";
 const SIGNATURES: Record<string, string> = {
   opened: "thanks for taking the time",
   assigned: "looking into this",
-  closed: "should now be resolved",
+  closed_by_team: "should now be resolved",
+  closed_by_author: "Thanks for letting us know",
 };
 
 export function buildComment(
@@ -30,13 +31,21 @@ export function buildComment(
       );
     }
 
-    case "closed":
+    case "closed": {
+      const closedBySelf = event.closedBy === event.author;
+      if (closedBySelf) {
+        return (
+          `Thanks for letting us know, @${event.author}! ` +
+          `Glad this is sorted. If anything else comes up, don't hesitate to open a new ${typeLabel}.`
+        );
+      }
       return (
         `Hey @${event.author}, this should now be resolved. ` +
         `If everything looks good on your end, no action needed. ` +
         `If you're still seeing issues, feel free to reopen and we'll take another look. ` +
         `Thanks for helping us improve!`
       );
+    }
   }
 }
 
@@ -60,6 +69,24 @@ async function isDuplicate(
   issueNumber: number,
   action: string
 ): Promise<boolean> {
+  // For closed events, check both possible signatures
+  if (action === "closed") {
+    const sigs = [SIGNATURES["closed_by_team"], SIGNATURES["closed_by_author"]];
+    try {
+      const { data: comments } = await octokit.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: issueNumber,
+      });
+      return comments.some(
+        (c: { body?: string }) => c.body && sigs.some((s) => c.body!.includes(s))
+      );
+    } catch {
+      core.warning("Failed to check for duplicate comments — proceeding with post");
+      return false;
+    }
+  }
+
   const signature = SIGNATURES[action];
   if (!signature) return false;
 

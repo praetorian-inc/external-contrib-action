@@ -23,6 +23,7 @@ function parseInputs(): ActionInputs {
 function parseEvent(): ContributionEvent {
   const context = github.context;
   const action = (context.payload.action || "opened") as "opened" | "assigned" | "closed";
+  const sender = (context.payload.sender as { login: string } | undefined)?.login;
 
   if (context.eventName === "pull_request_target" || context.eventName === "pull_request") {
     const pr = context.payload.pull_request!;
@@ -35,6 +36,7 @@ function parseEvent(): ContributionEvent {
       number: pr.number as number,
       author: (pr.user as { login: string }).login,
       assignee: context.payload.assignee?.login as string | undefined,
+      closedBy: action === "closed" ? sender : undefined,
       repo: context.repo.repo,
       repoFullName: `${context.repo.owner}/${context.repo.repo}`,
       labels: ((pr.labels || []) as Array<{ name: string }>).map((l) => l.name),
@@ -52,6 +54,7 @@ function parseEvent(): ContributionEvent {
       number: issue.number as number,
       author: (issue.user as { login: string }).login,
       assignee: context.payload.assignee?.login as string | undefined,
+      closedBy: action === "closed" ? sender : undefined,
       repo: context.repo.repo,
       repoFullName: `${context.repo.owner}/${context.repo.repo}`,
       labels: ((issue.labels || []) as Array<{ name: string }>).map((l) => l.name),

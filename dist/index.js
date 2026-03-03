@@ -39417,7 +39417,8 @@ const github = __importStar(__nccwpck_require__(3228));
 const SIGNATURES = {
     opened: "thanks for taking the time",
     assigned: "looking into this",
-    closed: "should now be resolved",
+    closed_by_team: "should now be resolved",
+    closed_by_author: "Thanks for letting us know",
 };
 function buildComment(event, assigneeDisplayName) {
     const typeLabel = event.type === "pull_request" ? "PR" : "issue";
@@ -39430,11 +39431,17 @@ function buildComment(event, assigneeDisplayName) {
             return (`Hey @${event.author}, I'm ${name} and I'll be looking into this. ` +
                 `Hang tight and I'll follow up once I have an update.`);
         }
-        case "closed":
+        case "closed": {
+            const closedBySelf = event.closedBy === event.author;
+            if (closedBySelf) {
+                return (`Thanks for letting us know, @${event.author}! ` +
+                    `Glad this is sorted. If anything else comes up, don't hesitate to open a new ${typeLabel}.`);
+            }
             return (`Hey @${event.author}, this should now be resolved. ` +
                 `If everything looks good on your end, no action needed. ` +
                 `If you're still seeing issues, feel free to reopen and we'll take another look. ` +
                 `Thanks for helping us improve!`);
+        }
     }
 }
 async function getDisplayName(octokit, username) {
@@ -39448,6 +39455,22 @@ async function getDisplayName(octokit, username) {
     }
 }
 async function isDuplicate(octokit, owner, repo, issueNumber, action) {
+    // For closed events, check both possible signatures
+    if (action === "closed") {
+        const sigs = [SIGNATURES["closed_by_team"], SIGNATURES["closed_by_author"]];
+        try {
+            const { data: comments } = await octokit.rest.issues.listComments({
+                owner,
+                repo,
+                issue_number: issueNumber,
+            });
+            return comments.some((c) => c.body && sigs.some((s) => c.body.includes(s)));
+        }
+        catch {
+            core.warning("Failed to check for duplicate comments — proceeding with post");
+            return false;
+        }
+    }
     const signature = SIGNATURES[action];
     if (!signature)
         return false;
@@ -39558,6 +39581,7 @@ function parseInputs() {
 function parseEvent() {
     const context = github.context;
     const action = (context.payload.action || "opened");
+    const sender = context.payload.sender?.login;
     if (context.eventName === "pull_request_target" || context.eventName === "pull_request") {
         const pr = context.payload.pull_request;
         return {
@@ -39569,6 +39593,7 @@ function parseEvent() {
             number: pr.number,
             author: pr.user.login,
             assignee: context.payload.assignee?.login,
+            closedBy: action === "closed" ? sender : undefined,
             repo: context.repo.repo,
             repoFullName: `${context.repo.owner}/${context.repo.repo}`,
             labels: (pr.labels || []).map((l) => l.name),
@@ -39585,6 +39610,7 @@ function parseEvent() {
             number: issue.number,
             author: issue.user.login,
             assignee: context.payload.assignee?.login,
+            closedBy: action === "closed" ? sender : undefined,
             repo: context.repo.repo,
             repoFullName: `${context.repo.owner}/${context.repo.repo}`,
             labels: (issue.labels || []).map((l) => l.name),

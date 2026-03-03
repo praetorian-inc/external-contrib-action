@@ -18,6 +18,7 @@ export interface ContributionEvent {
     number: number;
     author: string;
     assignee?: string;
+    closedBy?: string;
     repo: string;
     repoFullName: string;
     labels: string[];

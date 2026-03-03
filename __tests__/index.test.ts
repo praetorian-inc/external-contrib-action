@@ -202,6 +202,7 @@ describe("run (orchestrator)", () => {
     ctx.eventName = "issues";
     ctx.payload = {
       action: "closed",
+      sender: { login: "nsportsman" },
       issue: {
         title: "Bug report",
         body: "Found a bug",
