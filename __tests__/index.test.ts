@@ -21,6 +21,9 @@ jest.mock("../src/membership");
 jest.mock("../src/linear");
 jest.mock("../src/slack");
 jest.mock("../src/github-comment");
+jest.mock("../src/auth", () => ({
+  resolveMembershipToken: jest.fn(),
+}));
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
@@ -28,6 +31,7 @@ import { checkMembership } from "../src/membership";
 import { createLinearIssue } from "../src/linear";
 import { postSlackNotification } from "../src/slack";
 import { postGitHubComment } from "../src/github-comment";
+import { resolveMembershipToken } from "../src/auth";
 import { run } from "../src/index";
 
 const mockGetInput = core.getInput as jest.MockedFunction<typeof core.getInput>;
@@ -38,6 +42,7 @@ const mockCheckMembership = checkMembership as jest.MockedFunction<typeof checkM
 const mockCreateLinearIssue = createLinearIssue as jest.MockedFunction<typeof createLinearIssue>;
 const mockPostSlackNotification = postSlackNotification as jest.MockedFunction<typeof postSlackNotification>;
 const mockPostGitHubComment = postGitHubComment as jest.MockedFunction<typeof postGitHubComment>;
+const mockResolveMembershipToken = resolveMembershipToken as jest.MockedFunction<typeof resolveMembershipToken>;
 
 describe("run (orchestrator)", () => {
   beforeEach(() => {
@@ -60,6 +65,9 @@ describe("run (orchestrator)", () => {
     process.env.LINEAR_API_KEY = "lin_fake";
     process.env.SLACK_BOT_TOKEN = "xoxb-fake";
     process.env.GITHUB_TOKEN = "ghp-fake-token";
+
+    // Default: auth resolver returns a placeholder token (actual credentialing tested in auth.test.ts)
+    mockResolveMembershipToken.mockResolvedValue("fake-pat");
 
     // Default: external contributor
     mockCheckMembership.mockResolvedValue({ isMember: false, reason: "not_member" });
