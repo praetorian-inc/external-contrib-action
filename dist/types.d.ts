@@ -8,6 +8,8 @@ export interface ActionInputs {
     githubOrg: string;
     dryRun: boolean;
     autoReplyEnabled: boolean;
+    githubAppId?: string;
+    githubAppPrivateKey?: string;
 }
 export interface ContributionEvent {
     type: "pull_request" | "issue";

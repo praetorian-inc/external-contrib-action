@@ -4,6 +4,7 @@ import { checkMembership } from "./membership";
 import { createLinearIssue } from "./linear";
 import { postSlackNotification } from "./slack";
 import { postGitHubComment } from "./github-comment";
+import { resolveMembershipToken } from "./auth";
 import { ActionInputs, ContributionEvent } from "./types";
 
 function parseInputs(): ActionInputs {
@@ -17,6 +18,8 @@ function parseInputs(): ActionInputs {
     githubOrg: core.getInput("github-org") || "praetorian-inc",
     dryRun: core.getBooleanInput("dry-run"),
     autoReplyEnabled: core.getInput("auto-reply-enabled") !== "false",
+    githubAppId: core.getInput("github-app-id") || undefined,
+    githubAppPrivateKey: core.getInput("github-app-private-key") || undefined,
   };
 }
 
@@ -71,11 +74,12 @@ export async function run(): Promise<void> {
 
     core.info(`Processing ${event.type} #${event.number} (${event.action}) by ${event.author} on ${event.repoFullName}`);
 
-    // Step 1: Check org membership
-    const orgToken = process.env.ORG_MEMBER_CHECK_PAT;
-    if (!orgToken) {
-      throw new Error("ORG_MEMBER_CHECK_PAT environment variable is required");
-    }
+    // Step 1: Check org membership (prefer GitHub App installation token; PAT deprecated)
+    const orgToken = await resolveMembershipToken({
+      githubAppId: inputs.githubAppId,
+      githubAppPrivateKey: inputs.githubAppPrivateKey,
+      githubOrg: inputs.githubOrg,
+    });
 
     const membership = await checkMembership(event.author, inputs.githubOrg, orgToken);
 
